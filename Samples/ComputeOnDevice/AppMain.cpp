@@ -22,16 +22,13 @@ namespace ComputeOnDevice
             HoloLensForCV::MediaFrameSourceGroupType::PhotoVideoCamera)
         , _holoLensMediaFrameSourceGroupStarted(false)
         , _undistortMapsInitialized(false)
+        , _isActiveRenderer(false)
     {
     }
 
     void AppMain::OnHolographicSpaceChanged(
         Windows::Graphics::Holographic::HolographicSpace^ holographicSpace)
     {
-        _slateRenderer =
-            std::make_unique<Rendering::SlateRenderer>(
-                _deviceResources);
-
         //
         // Initialize the HoloLens media frame readers
         //
@@ -44,10 +41,27 @@ namespace ComputeOnDevice
         Windows::Perception::Spatial::SpatialCoordinateSystem^ currentCoordinateSystem =
             _spatialPerception->GetOriginFrameOfReference()->CoordinateSystem;
 
-        // When a Pressed gesture is detected, the sample hologram will be repositioned
-        // two meters in front of the user.
-        _slateRenderer->PositionHologram(
-            pointerState->TryGetPointerPose(currentCoordinateSystem));
+        if (!_isActiveRenderer)
+        {
+            _currentSlateRenderer =
+                std::make_shared<Rendering::SlateRenderer>(
+                    _deviceResources);
+            _slateRendererList.push_back(_currentSlateRenderer);
+
+            // When a Pressed gesture is detected, the sample hologram will be repositioned
+            // two meters in front of the user.
+            _currentSlateRenderer->PositionHologram(
+                pointerState->TryGetPointerPose(currentCoordinateSystem));
+
+            _isActiveRenderer = true;
+        }
+        else
+        {
+            // Freeze frame
+            _visualizationTextureList.push_back(_currentVisualizationTexture);
+            _currentVisualizationTexture = nullptr;
+            _isActiveRenderer = false;
+        }
     }
 
     void AppMain::OnUpdate(
@@ -67,9 +81,14 @@ namespace ComputeOnDevice
         // but if you change the StepTimer to use a fixed time step this code will
         // run as many times as needed to get to the current step.
         //
-        _slateRenderer->Update(
-            stepTimer);
-
+        
+        for (auto& r : _slateRendererList)
+        {
+            r->Update(
+                stepTimer);
+        }
+        
+        
         //
         // Process sensor data received through the HoloLensForCV component.
         //
@@ -105,52 +124,68 @@ namespace ComputeOnDevice
         if (!_undistortMapsInitialized)
         {
             Windows::Media::Devices::Core::CameraIntrinsics^ cameraIntrinsics =
-                latestFrame->CameraIntrinsics;
+                latestFrame->CoreCameraIntrinsics;
 
-            cv::Mat cameraMatrix(3, 3, CV_64FC1);
+            if (nullptr != cameraIntrinsics)
+            {
+                cv::Mat cameraMatrix(3, 3, CV_64FC1);
 
-            cv::setIdentity(cameraMatrix);
+                cv::setIdentity(cameraMatrix);
 
-            cameraMatrix.at<double>(0, 0) = cameraIntrinsics->FocalLength.x;
-            cameraMatrix.at<double>(1, 1) = cameraIntrinsics->FocalLength.y;
-            cameraMatrix.at<double>(0, 2) = cameraIntrinsics->PrincipalPoint.x;
-            cameraMatrix.at<double>(1, 2) = cameraIntrinsics->PrincipalPoint.y;
+                cameraMatrix.at<double>(0, 0) = cameraIntrinsics->FocalLength.x;
+                cameraMatrix.at<double>(1, 1) = cameraIntrinsics->FocalLength.y;
+                cameraMatrix.at<double>(0, 2) = cameraIntrinsics->PrincipalPoint.x;
+                cameraMatrix.at<double>(1, 2) = cameraIntrinsics->PrincipalPoint.y;
 
-            cv::Mat distCoeffs(5, 1, CV_64FC1);
+                cv::Mat distCoeffs(5, 1, CV_64FC1);
 
-            distCoeffs.at<double>(0, 0) = cameraIntrinsics->RadialDistortion.x;
-            distCoeffs.at<double>(1, 0) = cameraIntrinsics->RadialDistortion.y;
-            distCoeffs.at<double>(2, 0) = cameraIntrinsics->TangentialDistortion.x;
-            distCoeffs.at<double>(3, 0) = cameraIntrinsics->TangentialDistortion.y;
-            distCoeffs.at<double>(4, 0) = cameraIntrinsics->RadialDistortion.z;
+                distCoeffs.at<double>(0, 0) = cameraIntrinsics->RadialDistortion.x;
+                distCoeffs.at<double>(1, 0) = cameraIntrinsics->RadialDistortion.y;
+                distCoeffs.at<double>(2, 0) = cameraIntrinsics->TangentialDistortion.x;
+                distCoeffs.at<double>(3, 0) = cameraIntrinsics->TangentialDistortion.y;
+                distCoeffs.at<double>(4, 0) = cameraIntrinsics->RadialDistortion.z;
 
-            cv::initUndistortRectifyMap(
-                cameraMatrix,
-                distCoeffs,
-                cv::Mat_<double>::eye(3, 3) /* R */,
-                cameraMatrix,
-                cv::Size(wrappedImage.cols, wrappedImage.rows),
-                CV_32FC1 /* type */,
-                _undistortMap1,
-                _undistortMap2);
+                cv::initUndistortRectifyMap(
+                    cameraMatrix,
+                    distCoeffs,
+                    cv::Mat_<double>::eye(3, 3) /* R */,
+                    cameraMatrix,
+                    cv::Size(wrappedImage.cols, wrappedImage.rows),
+                    CV_32FC1 /* type */,
+                    _undistortMap1,
+                    _undistortMap2);
 
-            _undistortMapsInitialized = true;
+                _undistortMapsInitialized = true;
+            }
         }
 
-        cv::remap(
-            wrappedImage,
-            _undistortedPVCameraImage,
-            _undistortMap1,
-            _undistortMap2,
-            cv::INTER_LINEAR);
+        if (_undistortMapsInitialized)
+        {
+            cv::remap(
+                wrappedImage,
+                _undistortedPVCameraImage,
+                _undistortMap1,
+                _undistortMap2,
+                cv::INTER_LINEAR);
 
-        cv::resize(
-            _undistortedPVCameraImage,
-            _resizedPVCameraImage,
-            cv::Size(),
-            0.5 /* fx */,
-            0.5 /* fy */,
-            cv::INTER_AREA);
+            cv::resize(
+                _undistortedPVCameraImage,
+                _resizedPVCameraImage,
+                cv::Size(),
+                0.5 /* fx */,
+                0.5 /* fy */,
+                cv::INTER_AREA);
+        }
+        else
+        {
+            cv::resize(
+                wrappedImage,
+                _resizedPVCameraImage,
+                cv::Size(),
+                0.5 /* fx */,
+                0.5 /* fy */,
+                cv::INTER_AREA);
+        }
 
         cv::medianBlur(
             _resizedPVCameraImage,
@@ -169,7 +204,7 @@ namespace ComputeOnDevice
             {
                 if (_cannyPVCameraImage.at<uint8_t>(y, x) > 64)
                 {
-                    _blurredPVCameraImage.at<uint32_t>(y, x) = 0xFFFF00FF;
+                    *(_blurredPVCameraImage.ptr<uint32_t>(y, x)) = 0xFFFF00FF;
                 }
             }
         }
@@ -177,7 +212,7 @@ namespace ComputeOnDevice
         OpenCVHelpers::CreateOrUpdateTexture2D(
             _deviceResources,
             _blurredPVCameraImage,
-            _visualizationTexture);
+            _currentVisualizationTexture);
     }
 
     void AppMain::OnPreRender()
@@ -189,27 +224,46 @@ namespace ComputeOnDevice
     void AppMain::OnRender()
     {
         // Draw the sample hologram.
-        _slateRenderer->Render(
-            _visualizationTexture);
+        for (size_t i = 0; i < _visualizationTextureList.size(); ++i)
+        {
+            _slateRendererList[i]->Render(
+                _visualizationTextureList[i]);
+        }
+        
+        if (_isActiveRenderer)
+        {
+            _currentSlateRenderer->Render(_currentVisualizationTexture);
+        }
     }
 
     // Notifies classes that use Direct3D device resources that the device resources
     // need to be released before this method returns.
     void AppMain::OnDeviceLost()
     {
-        _slateRenderer->ReleaseDeviceDependentResources();
+        
+        for (auto& r : _slateRendererList)
+        {
+            r->ReleaseDeviceDependentResources();
+        }
 
         _holoLensMediaFrameSourceGroup = nullptr;
         _holoLensMediaFrameSourceGroupStarted = false;
 
-        _visualizationTexture.reset();
+        for (auto& v : _visualizationTextureList)
+        {
+            v.reset();
+        }
+        _currentVisualizationTexture.reset();
     }
 
     // Notifies classes that use Direct3D device resources that the device resources
     // may now be recreated.
     void AppMain::OnDeviceRestored()
     {
-        _slateRenderer->CreateDeviceDependentResources();
+        for (auto& r : _slateRendererList)
+        {
+            r->CreateDeviceDependentResources();
+        }
 
         StartHoloLensMediaFrameSourceGroup();
     }
@@ -226,6 +280,9 @@ namespace ComputeOnDevice
                 _selectedHoloLensMediaFrameSourceGroupType,
                 _spatialPerception,
                 _sensorFrameStreamer);
+
+        _holoLensMediaFrameSourceGroup->Enable(
+            HoloLensForCV::SensorType::PhotoVideo);
 
         concurrency::create_task(_holoLensMediaFrameSourceGroup->StartAsync()).then(
             [&]()

@@ -26,6 +26,56 @@ namespace HoloLensForCV
     {
     }
 
+    void MediaFrameSourceGroup::EnableAll()
+    {
+        switch (_mediaFrameSourceGroupType)
+        {
+        case MediaFrameSourceGroupType::PhotoVideoCamera:
+            Enable(SensorType::PhotoVideo);
+            break;
+
+#if ENABLE_HOLOLENS_RESEARCH_MODE_SENSORS
+        case MediaFrameSourceGroupType::HoloLensResearchModeSensors:
+            Enable(SensorType::ShortThrowToFDepth);
+            Enable(SensorType::ShortThrowToFReflectivity);
+            Enable(SensorType::LongThrowToFDepth);
+            Enable(SensorType::LongThrowToFReflectivity);
+            Enable(SensorType::VisibleLightLeftLeft);
+            Enable(SensorType::VisibleLightLeftFront);
+            Enable(SensorType::VisibleLightRightFront);
+            Enable(SensorType::VisibleLightRightRight);
+            break;
+#endif /* ENABLE_HOLOLENS_RESEARCH_MODE_SENSORS */
+        }
+    }
+
+    void MediaFrameSourceGroup::Enable(
+        _In_ SensorType sensorType)
+    {
+        const int32_t sensorTypeAsIndex =
+            (int32_t)sensorType;
+
+        REQUIRES(
+            0 <= sensorTypeAsIndex &&
+            sensorTypeAsIndex < (int32_t)_enabledFrameReaders.size());
+
+        _enabledFrameReaders[sensorTypeAsIndex] =
+            true;
+    }
+
+    bool MediaFrameSourceGroup::IsEnabled(
+        _In_ SensorType sensorType) const
+    {
+        const int32_t sensorTypeAsIndex =
+            (int32_t)sensorType;
+
+        REQUIRES(
+            0 <= sensorTypeAsIndex &&
+            sensorTypeAsIndex < (int32_t)_enabledFrameReaders.size());
+
+        return _enabledFrameReaders[sensorTypeAsIndex];
+    }
+
     Windows::Foundation::IAsyncAction^ MediaFrameSourceGroup::StartAsync()
     {
         return concurrency::create_async(
@@ -34,6 +84,15 @@ namespace HoloLensForCV
                 return InitializeMediaSourceWorkerAsync();
             });
     }
+
+	Windows::Foundation::IAsyncAction^ MediaFrameSourceGroup::StopAsync()
+	{
+		return concurrency::create_async(
+			[this]()
+		{
+			return CleanupMediaCaptureAsync();
+		});
+	}
 
     SensorFrame^ MediaFrameSourceGroup::GetLatestSensorFrame(
         SensorType sensorType)
@@ -44,6 +103,11 @@ namespace HoloLensForCV
         REQUIRES(
             0 <= sensorTypeAsIndex &&
             sensorTypeAsIndex < (int32_t)_frameReaders.size());
+
+        if (_frameReaders[sensorTypeAsIndex] == nullptr)
+        {
+            return nullptr;
+        }
 
         return _frameReaders[sensorTypeAsIndex]->GetLatestSensorFrame();
     }
@@ -73,6 +137,9 @@ namespace HoloLensForCV
                 const wchar_t* c_HoloLensDevelopmentEditionPhotoVideoSourceGroupDisplayName =
                     L"MN34150";
 
+                const wchar_t* c_HoloLensResearchModeSensorStreamingGroupDisplayName =
+                    L"Sensor Streaming";
+
                 if (MediaFrameSourceGroupType::PhotoVideoCamera == _mediaFrameSourceGroupType &&
                     (0 == wcscmp(c_HoloLensDevelopmentEditionPhotoVideoSourceGroupDisplayName, sourceGroupDisplayName)))
                 {
@@ -86,6 +153,21 @@ namespace HoloLensForCV
 
                     break;
                 }
+#if ENABLE_HOLOLENS_RESEARCH_MODE_SENSORS
+                else if (MediaFrameSourceGroupType::HoloLensResearchModeSensors == _mediaFrameSourceGroupType &&
+                    (0 == wcscmp(c_HoloLensResearchModeSensorStreamingGroupDisplayName, sourceGroupDisplayName)))
+                {
+#if DBG_ENABLE_INFORMATIONAL_LOGGING
+                    dbg::trace(
+                        L"MediaFrameSourceGroup::InitializeMediaSourceWorkerAsync: found the HoloLens Sensor Streaming media frame source group.");
+#endif /* DBG_ENABLE_INFORMATIONAL_LOGGING */
+
+                    selectedSourceGroup =
+                        sourceGroup;
+
+                    break;
+                }
+#endif /* ENABLE_HOLOLENS_RESEARCH_MODE_SENSORS */
             }
 
             if (nullptr == selectedSourceGroup)
@@ -155,6 +237,19 @@ namespace HoloLensForCV
 #if DBG_ENABLE_INFORMATIONAL_LOGGING
                             dbg::trace(
                                 L"MediaFrameSourceGroup::InitializeMediaSourceWorkerAsync: sensor type %s has already been initialized!",
+                                sensorType.ToString());
+#endif /* DBG_ENABLE_INFORMATIONAL_LOGGING */
+
+                            return Concurrency::task_from_result();
+                        }
+                        else if (!IsEnabled(sensorType))
+                        {
+                            //
+                            // The sensor type was not explicitly enabled by user. Ignore this source.
+                            //
+#if DBG_ENABLE_INFORMATIONAL_LOGGING
+                            dbg::trace(
+                                L"MediaFrameSourceGroup::InitializeMediaSourceWorkerAsync: sensor type %s has not been enabled!",
                                 sensorType.ToString());
 #endif /* DBG_ENABLE_INFORMATIONAL_LOGGING */
 
@@ -339,8 +434,9 @@ namespace HoloLensForCV
 
 #if DBG_ENABLE_INFORMATIONAL_LOGGING
         dbg::trace(
-            L"MediaFrameSourceGroup::GetSensorType:: found sensor name '%s' in MF_MT_USER_DATA",
-            sensorName);
+            L"MediaFrameSourceGroup::GetSensorType:: found sensor name '%s' in MF_MT_USER_DATA (blob has %i bytes)",
+            sensorName,
+            sensorNameAsPlatformArray->Length);
 #endif /* DBG_ENABLE_INFORMATIONAL_LOGGING */
 
 #if ENABLE_HOLOLENS_RESEARCH_MODE_SENSORS
@@ -351,6 +447,14 @@ namespace HoloLensForCV
         else if (0 == wcscmp(sensorName, L"Short Throw ToF Reflectivity"))
         {
             return SensorType::ShortThrowToFReflectivity;
+        }
+        if (0 == wcscmp(sensorName, L"Long Throw ToF Depth"))
+        {
+            return SensorType::LongThrowToFDepth;
+        }
+        else if (0 == wcscmp(sensorName, L"Long Throw ToF Reflectivity"))
+        {
+            return SensorType::LongThrowToFReflectivity;
         }
         else if (0 == wcscmp(sensorName, L"Visible Light Left-Left"))
         {
@@ -405,6 +509,76 @@ namespace HoloLensForCV
             //
             return Windows::Media::MediaProperties::MediaEncodingSubtypes::Bgra8;
 
+#if ENABLE_HOLOLENS_RESEARCH_MODE_SENSORS
+        case Windows::Media::Capture::Frames::MediaFrameSourceKind::Depth:
+        {
+            if (MediaFrameSourceGroupType::HoloLensResearchModeSensors == _mediaFrameSourceGroupType)
+            {
+                //
+                // The only depth format we can render is D16.
+                //
+                dbg::trace(
+                    L"MediaFrameSourceGroup::GetSubtypeForFrameReader: evaluating MediaFrameSourceKind::Depth with format %s-%s @%i/%iHz",
+                    format->MajorType->Data(),
+                    format->Subtype->Data(),
+                    format->FrameRate->Numerator,
+                    format->FrameRate->Denominator);
+
+                const bool isD16 =
+                    CompareStringOrdinal(
+                        format->Subtype->Data(),
+                        -1 /* cchCount1 */,
+                        Windows::Media::MediaProperties::MediaEncodingSubtypes::D16->Data(),
+                        -1 /* cchCount2 */,
+                        TRUE /* bIgnoreCase */) == CSTR_EQUAL;
+
+                return isD16 ? format->Subtype : nullptr;
+            }
+            else
+            {
+                return nullptr;
+            }
+        }
+
+        case Windows::Media::Capture::Frames::MediaFrameSourceKind::Infrared:
+        {
+            if (MediaFrameSourceGroupType::HoloLensResearchModeSensors == _mediaFrameSourceGroupType)
+            {
+                //
+                // The only infrared formats we can render are L8 and L16.
+                //
+                dbg::trace(
+                    L"MediaFrameSourceGroup::GetSubtypeForFrameReader: evaluating MediaFrameSourceKind::Infrared with format %s-%s @%i/%iHz",
+                    format->MajorType->Data(),
+                    format->Subtype->Data(),
+                    format->FrameRate->Numerator,
+                    format->FrameRate->Denominator);
+
+                const bool isL8 =
+                    CompareStringOrdinal(
+                        format->Subtype->Data(),
+                        -1 /* cchCount1 */,
+                        Windows::Media::MediaProperties::MediaEncodingSubtypes::L8->Data(),
+                        -1 /* cchCount2 */,
+                        TRUE /* bIgnoreCase */) == CSTR_EQUAL;
+
+                const bool isL16 =
+                    CompareStringOrdinal(
+                        format->Subtype->Data(),
+                        -1 /* cchCount1 */,
+                        Windows::Media::MediaProperties::MediaEncodingSubtypes::L16->Data(),
+                        -1 /* cchCount2 */,
+                        TRUE /* bIgnoreCase */) == CSTR_EQUAL;
+
+                return (isL8 || isL16) ? format->Subtype : nullptr;
+            }
+            else
+            {
+                return nullptr;
+            }
+        }
+#endif /* ENABLE_HOLOLENS_RESEARCH_MODE_SENSORS */
+
         default:
             //
             // No other source kinds are supported by this class.
@@ -430,8 +604,6 @@ namespace HoloLensForCV
         _mediaCapture =
             ref new Windows::Media::Capture::MediaCapture();
 
-        //
-        // 
         auto settings =
             ref new Windows::Media::Capture::MediaCaptureInitializationSettings();
 
@@ -483,7 +655,7 @@ namespace HoloLensForCV
             {
                 //
                 // Get the result of the initialization. This call will throw if initialization failed
-                // This pattern is docuemnted at https://msdn.microsoft.com/en-us/library/dd997692.aspx
+                // This pattern is documented at https://msdn.microsoft.com/en-us/library/dd997692.aspx
                 //
                 initializeMediaCaptureTask.get();
 

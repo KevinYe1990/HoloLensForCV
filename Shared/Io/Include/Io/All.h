@@ -11,9 +11,11 @@
 
 #pragma once
 
+#include <Io/Time.h>
+#include <Io/TimeConverter.h>
+#include <Io/Timer.h>
 #include <Io/StorageHandleAccess.h>
 #include <Io/Tar.h>
 #include <Io/BufferHelpers.h>
 #include <Io/StringHelpers.h>
 #include <Io/IoHelpers.h>
-#include <Io/TimeConverter.h>

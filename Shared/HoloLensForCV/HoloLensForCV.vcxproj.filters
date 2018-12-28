@@ -48,6 +48,8 @@
     <ClCompile Include="SensorFrameReceiver.cpp">
       <Filter>Sensor Frame Receiver</Filter>
     </ClCompile>
+    <ClCompile Include="CameraIntrinsics.cpp" />
+    <ClCompile Include="MultiFrameBuffer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -86,6 +88,9 @@
     <ClInclude Include="SensorFrameReceiver.h">
       <Filter>Sensor Frame Receiver</Filter>
     </ClInclude>
+    <ClInclude Include="CameraIntrinsics.h" />
+    <ClInclude Include="ICameraIntrinsics.h" />
+    <ClInclude Include="MultiFrameBuffer.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="README.md" />

@@ -34,8 +34,8 @@
     <MinimumVisualStudioVersion>14.0</MinimumVisualStudioVersion>
     <AppContainerApplication>true</AppContainerApplication>
     <ApplicationType>Windows Store</ApplicationType>
-    <WindowsTargetPlatformVersion>10.0.14393.0</WindowsTargetPlatformVersion>
-    <WindowsTargetPlatformMinVersion>10.0.14393.0</WindowsTargetPlatformMinVersion>
+    <WindowsTargetPlatformVersion>10.0.17134.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformMinVersion>10.0.17134.0</WindowsTargetPlatformMinVersion>
     <ApplicationTypeRevision>10.0</ApplicationTypeRevision>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -230,11 +230,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="CameraIntrinsics.h" />
     <ClInclude Include="CsvWriter.h" />
+    <ClInclude Include="ICameraIntrinsics.h" />
     <ClInclude Include="ISensorFrameSink.h" />
     <ClInclude Include="ISensorFrameSinkGroup.h" />
     <ClInclude Include="MediaFrameReaderContext.h" />
     <ClInclude Include="MediaFrameSourceGroupType.h" />
+    <ClInclude Include="MultiFrameBuffer.h" />
     <ClInclude Include="SensorFrame.h" />
     <ClInclude Include="SensorFrameReceiver.h" />
     <ClInclude Include="SensorFrameRecorder.h" />
@@ -248,8 +251,10 @@
     <ClInclude Include="SpatialPerception.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="CameraIntrinsics.cpp" />
     <ClCompile Include="CsvWriter.cpp" />
     <ClCompile Include="MediaFrameReaderContext.cpp" />
+    <ClCompile Include="MultiFrameBuffer.cpp" />
     <ClCompile Include="SensorFrame.cpp" />
     <ClCompile Include="SensorFrameReceiver.cpp" />
     <ClCompile Include="SensorFrameRecorder.cpp" />
